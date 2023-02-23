@@ -104,14 +104,12 @@ class TestLoadingTorrents:
 
         assert spoof.announce_url == valid_singlefile_metainfo[b"announce"].decode()
         assert (
-            spoof.torrent.infohash
+            spoof.infohash
             == hashlib.sha1(
                 flatbencode.encode(valid_singlefile_metainfo[b"info"])
             ).hexdigest()
         )
-        assert (
-            spoof.torrent.name == valid_singlefile_metainfo[b"info"][b"name"].decode()
-        )
+        assert spoof.name == valid_singlefile_metainfo[b"info"][b"name"].decode()
 
     def test_load_subdirectories(self, tmp_path, valid_singlefile_metainfo):
         files = [
@@ -205,13 +203,15 @@ async def test_announce_counting(httpx_mock: HTTPXMock, valid_torrent: TorrentSp
             assert i + 1 == valid_torrent.num_announces
 
 
-@pytest.mark.parametrize(
-    "infohash,url_encoded_infohash",
-    [
-        ("a", "10.3.9"),
-        (TorrentClient.qBittorrent, "4.16.5"),
-        (TorrentClient.qBittorrent, "3.3.14"),
-    ],
-)
-def test_infohash_url_encoded_correctly(infohash, url_encoded_infohash):
-    pass
+# @pytest.mark.parametrize(
+#     "infohash,url_encoded_infohash",
+#     [
+#         ("a", "10.3.9"),
+#         (TorrentClient.qBittorrent, "4.16.5"),
+#         (TorrentClient.qBittorrent, "3.3.14"),
+#     ],
+# )
+def test_infohash_url_encoded_correctly(
+    httpx_mock: HTTPXMock, valid_torrent: TorrentSpoofer
+):
+    infohash = valid_torrent.infohash

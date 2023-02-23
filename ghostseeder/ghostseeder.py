@@ -81,10 +81,12 @@ class TrackerRequestEvent(enum.Enum):
 class TorrentSpoofer:
     def __init__(self, filepath: str, peer_id: str, useragent: str):
         self.filepath = filepath
-        self.torrent = torf.Torrent.read(filepath)
+        torrent = torf.Torrent.read(filepath)
         self.peer_id = peer_id
         self.useragent = useragent
-        self.announce_url = self.torrent.metainfo["announce"]
+        self.announce_url = torrent.metainfo["announce"]
+        self.name = torrent.name
+        self.infohash = torrent.infohash
         self.num_announces = 0
 
     async def announce(
@@ -99,7 +101,7 @@ class TorrentSpoofer:
     ) -> httpx.Response:
         headers = {"User-Agent": self.useragent}
         params = {
-            "info_hash": bytes.fromhex(self.torrent.infohash),
+            "info_hash": bytes.fromhex(self.infohash),
             "peer_id": self.peer_id,
             "uploaded": uploaded,
             "downloaded": downloaded,
@@ -116,10 +118,10 @@ class TorrentSpoofer:
         # I'm manually urlencoding the query parameters because httpx doesn't
         # seem to encode the infohash bytestring correctly...
         url = f"{self.announce_url}?{urlencode(params)}"
-        logging.info(f"Announcing {self.torrent.name} to {url}")
+        logging.info(f"Announcing {self.name} to {url}")
         response = await client.get(url, headers=headers)
         logging.debug(
-            f"For {self.torrent.name} announcement, server returned response:\n\n {response.content}"
+            f"For {self.name} announcement, server returned response:\n\n {response.content}"
         )
         self.num_announces += 1
         return response
@@ -131,15 +133,15 @@ class TorrentSpoofer:
                 response = await self.announce(client, port, event=event)
             except httpx.HTTPError as exc:
                 logging.warning(
-                    f"Unable to complete request for {self.torrent.name} exception occurred: {exc}"
+                    f"Unable to complete request for {self.name} exception occurred: {exc}"
                 )
                 sleep = DEFAULT_SLEEP_INTERVAL
             else:
                 # Re-announce again at the given time provided by tracker
-                sleep = parse_interval(response.content, self.torrent.name)
+                sleep = parse_interval(response.content, self.name)
 
             logging.info(
-                f"Re-announcing (#{self.num_announces}) {self.torrent.name} in {sleep} seconds..."
+                f"Re-announcing (#{self.num_announces}) {self.name} in {sleep} seconds..."
             )
             await asyncio.sleep(sleep)
 
