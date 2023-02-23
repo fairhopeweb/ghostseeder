@@ -20,11 +20,11 @@ import httpx
 import semver
 import torf
 
+from asynciolimiter import StrictLimiter
+
 DEBUG = False
-# Allow for 5 concurrent requests at a time and if blocked, wait by sleeping
-# 15 seconds:
-CONCURRENCY_LIMIT = 5
-WAIT_TIME_SECONDS = 15
+
+CONCURRENCY_LIMIT = 1
 # Default time in between announces unless tracker provides an
 # interval (3600 seconds = 1 hour):
 DEFAULT_SLEEP_INTERVAL = 3600
@@ -118,26 +118,25 @@ class TorrentSpoofer:
         # I'm manually urlencoding the query parameters because httpx doesn't
         # seem to encode the infohash bytestring correctly...
         url = f"{self.announce_url}?{urlencode(params)}"
-        logging.info(f"Announcing {self.name} to {url}")
+        logging.info(f"Announcing {self.name}")
         response = await client.get(url, headers=headers)
         logging.debug(
-            f"For {self.name} announcement, server returned response:\n\n {response.content}"
+            f"For {self.name} announcement ({url}) server returned response:\n\n {response.content}"
         )
         self.num_announces += 1
         return response
 
     async def announce_forever(
-        self, client: httpx.AsyncClient, limit: asyncio.Semaphore, port: int
+        self, client: httpx.AsyncClient, limit: StrictLimiter, port: int
     ):
         try:
             while True:
-                event = TrackerRequestEvent.STARTED if self.num_announces == 0 else None
+                if self.num_announces == 0:
+                    event = TrackerRequestEvent.STARTED
+                else:
+                    event = None
 
-                if limit.locked():
-                    logging.debug(
-                        "Concurrency limit reached...waiting {WAIT_TIME_SECONDS}s for {self.name}"
-                    )
-                    # await asyncio.sleep(WAIT_TIME_SECONDS)
+                await limit.wait()
                 try:
                     response = await self.announce(client, port, event=event)
                 except httpx.HTTPError as exc:
@@ -148,7 +147,6 @@ class TorrentSpoofer:
                 else:
                     # Re-announce again at the given time provided by tracker
                     sleep = parse_interval(response.content, self.name)
-
                 logging.info(
                     f"Re-announcing (#{self.num_announces}) {self.name} in {sleep} seconds..."
                 )
@@ -210,13 +208,10 @@ async def ghostseed(filepath: str, port: int, version: str) -> None:
     logging.info(
         f"Tracker announces will use the following settings: (port={port}, peer_id='{peer_id}', user-agent='{useragent}')"
     )
-    concurrency_limit = asyncio.Semaphore(CONCURRENCY_LIMIT)
+    limit = StrictLimiter(CONCURRENCY_LIMIT)
 
-    async with concurrency_limit:
-        async with httpx.AsyncClient() as client:
-            announces = []
-            for torrent in torrents:
-                announces.append(
-                    torrent.announce_forever(client, concurrency_limit, port)
-                )
-            await asyncio.gather(*announces)
+    async with httpx.AsyncClient() as client:
+        announces = []
+        for torrent in torrents:
+            announces.append(torrent.announce_forever(client, limit, port))
+        await asyncio.gather(*announces)

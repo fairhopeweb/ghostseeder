@@ -14,6 +14,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
 ]
 dependencies = [
+    "asynciolimiter==1.0.0b1",
     "flatbencode>=0.2.1",
     "httpx>=0.23.3",
     "semver>=2.13.0",
@@ -33,3 +34,9 @@ test = [
 
 [tool.setuptools]
 py-modules = []
+
+[tool.pytest.ini_options]
+addopts = "--log-level DEBUG"
+testpaths = [
+    "tests",
+]
