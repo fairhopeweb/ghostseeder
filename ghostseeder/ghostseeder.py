@@ -6,6 +6,7 @@ with few seeders. But trackers don't have an explicit way to verify you
 actually have the files
 """
 import argparse
+import asyncio
 import enum
 import logging
 import os
@@ -16,7 +17,6 @@ from typing import Optional
 from urllib.parse import urlencode
 
 import aiolimiter
-import asyncio
 import flatbencode
 import httpx
 import semver
