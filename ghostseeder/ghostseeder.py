@@ -87,6 +87,7 @@ class TorrentSpoofer:
         self.peer_id = peer_id
         self.useragent = useragent
         self.announce_url = self.torrent.metainfo["announce"]
+        self.num_announces = 0
 
     async def announce(
         self,
@@ -123,13 +124,12 @@ class TorrentSpoofer:
         logging.debug(
             f"For {self.torrent.name} announcement, server returned response:\n\n {response.content}"
         )
+        self.num_announces += 1
         return response
 
     async def announce_forever(self, client: httpx.AsyncClient, port: int):
-        num_announces = 1
-
         while True:
-            event = TrackerRequestEvent.STARTED if num_announces == 1 else None
+            event = TrackerRequestEvent.STARTED if self.num_announces == 0 else None
             try:
                 response = await self.announce(client, port, event=event)
             except httpx.HTTPError as exc:
@@ -141,9 +141,9 @@ class TorrentSpoofer:
                 # Re-announce again at the given time provided by tracker
                 contents = response.content
                 sleep = parse_interval(contents, self.torrent.name)
-                num_announces += 1
+
             logging.info(
-                f"Re-announcing (#{num_announces}) {self.torrent.name} in {sleep} seconds..."
+                f"Re-announcing (#{self.num_announces}) {self.torrent.name} in {sleep} seconds..."
             )
             await asyncio.sleep(sleep)
 

@@ -196,5 +196,14 @@ async def test_user_agent_string_in_header(
     assert valid_torrent.useragent == response.request.headers["User-Agent"]
 
 
-def test_infohash_url_encoded_correctly():
+@pytest.mark.asyncio
+async def test_announce_counting(httpx_mock: HTTPXMock, valid_torrent: TorrentSpoofer):
+    httpx_mock.add_response()
+    async with httpx.AsyncClient() as client:
+        for i in range(10):
+            await valid_torrent.announce(client, port=6881)
+            assert i + 1 == valid_torrent.num_announces
+
+
+def test_infohash_url_encoded_correctly(infohash, url_encoded_infohash):
     pass
