@@ -5,23 +5,31 @@ Private trackers often reward bonus points for seeding large torrents
 with few seeders. But trackers don't have an explicit way to verify you 
 actually have the files
 """
-import hashlib
-import os
-import logging
-import time
-import random
 import argparse
+import enum
+import logging
+import os
+import random
 import string
 
+from typing import Optional
 from urllib.parse import urlencode
 
+import aiolimiter
 import asyncio
-import aiohttp
-import yarl
-import pyben
+import flatbencode
+import httpx
+import semver
+import torf
 
 DEBUG = False
-DEFAULT_SLEEP_INTERVAL = 3600  # 3600 seconds = 1 hour
+# Allow for 10 concurrent announces within a 5 second window. Useful
+# especially during a cold start with a lot of torrents:
+RATE_LIMIT = aiolimiter.AsyncLimiter(10, 5)
+# Default time in between announces unless tracker provides an
+# interval (3600 seconds = 1 hour):
+DEFAULT_SLEEP_INTERVAL = 3600
+
 
 logging.basicConfig(
     format="%(asctime)s %(levelname)-8s %(message)s",
@@ -30,113 +38,71 @@ logging.basicConfig(
 )
 
 
-def load_torrents(path: str, peer_id: str, useragent: str) -> ["Torrent"]:
-    """Recursively find and parse through all torrent files in a directory
-
-    path: folder containing torrent files
-    peer_id: The BitTorrent protocol peer id used for announces
-    useragent: The user agent string to be used in HTTP requests when announcing
-    """
-    logging.info(f"Searching for torrent files located under '{path}'")
-
-    torrents = []
-    for root, dirs, files in os.walk(path):
-        for file in files:
-            if file.endswith(".torrent"):
-                filepath = os.path.join(root, file)
-
-                logging.info(f"Found {filepath}")
-                torrents.append(filepath)
-
-    logging.info(f"Found {len(torrents)} torrent files")
-    logging.info("Reading and parsing torrent files...")
-
-    return [Torrent(file, peer_id, useragent) for file in torrents]
-
-
-def parse_version_info(version):
-    try:
-        major, minor, patch = version.split(".")
-
-        major = int(major)
-        minor = int(minor)
-        patch = int(patch)
-    except Exception as exc:
-        raise Exception(f"Can not parse version info: '{version}'") from exc
-
-    return major, minor, patch
-
-
-def generate_peer_id(
-    client: str = "qB", major: int = 4, minor: int = 4, patch: int = 5
-) -> str:
+def generate_peer_id(client: str, version: semver.VersionInfo) -> str:
     """Generates a unique string that identifies your torrent client to the
     tracker. Uses the "Azureus-style" convention. For more information
     see https://wiki.theory.org/BitTorrentSpecification#peer_id
     """
-
-    assert len(client) == 2 and major < 16 and minor < 16 and patch < 16
-
-    # The patch number is represented as hexadecimal and can go up to version x.y.15
+    # The major, minor, patch numbers are supposed to be represented as hexadecimal
+    # and go up to version x.y.15 using 10->A, 11->B, ...16->F
     # See: https://github.com/qbittorrent/qBittorrent/wiki/Frequently-Asked-Questions#What_is_qBittorrent_Peer_ID
-    hexmap = {10: "A", 11: "B", 12: "C", 13: "D", 14: "E", 15: "F"}
-    patch = str(hexmap.get(patch, patch))
+    # But this is complicated to deal with so artificially prevent any 2-digit numbers:
+    assert (
+        len(client) == 2
+        and version.major < 10
+        and version.minor < 10
+        and version.patch < 10
+    )
 
-    client_version = f"-{client}{major}{minor}{patch}0-"
     random_hash = "".join(
         random.choices(string.ascii_uppercase + string.ascii_lowercase, k=12)
     )
-
-    peer_id = client_version + random_hash
+    peer_id = f"-{client}{version.major}{version.minor}{version.patch}0-{random_hash}"
     assert len(peer_id) == 20
 
     logging.info(f"Generating torrent client peer id: {peer_id}")
     return peer_id
 
 
-def generate_useragent(
-    client: str = "qB", major: int = 4, minor: int = 4, patch: int = 5
-) -> str:
-    # https://wiki.theory.org/BitTorrentSpecification#peer_id
+def generate_useragent(client: str, version: semver.VersionInfo) -> str:
+    # Also see: https://wiki.theory.org/BitTorrentSpecification#peer_id
+    # Only qBittorrent is supported rightnow
     client_map = {
         "qB": "qBittorrent",
     }
     client = client_map[client]
+    return f"{client}/{version.major}.{version.minor}.{version.patch}"
 
-    return f"{client}/{major}.{minor}.{patch}"
+
+# See: https://wiki.theory.org/BitTorrentSpecification#Tracker_Request_Parameters
+class TrackerRequestEvent(enum.Enum):
+    STARTED = "started"
+    STOPPED = "stopped"
+    COMPLETED = "completed"
 
 
-class Torrent:
+class TorrentSpoofer:
     def __init__(self, filepath: str, peer_id: str, useragent: str):
         self.filepath = filepath
-        torrent = pyben.load(filepath)
-        info = torrent["info"]
-        self.tracker_url = torrent["announce"]
-        self.infohash = hashlib.sha1(pyben.benencode(info)).hexdigest()
-        self.name = info["name"]
-
+        self.torrent = torf.Torrent.read(filepath)
         self.peer_id = peer_id
         self.useragent = useragent
-
-    @property
-    def magnet_link(self):
-        return f"magnet:?xt=urn:btih:{self.infohash}"
+        self.announce_url = self.torrent.metainfo["announce"]
 
     async def announce(
         self,
-        session: aiohttp.ClientSession,
+        client: httpx.AsyncClient,
         port: int,
         uploaded: int = 0,
         downloaded: int = 0,
         left: int = 0,
         compact: int = 1,
-        event: str = None,
+        event: Optional[TrackerRequestEvent] = None,
     ) -> bytes:
 
         headers = {"User-Agent": self.useragent}
-
         params = {
-            "info_hash": bytes.fromhex(self.infohash),
+            "info_hash": bytes.fromhex(self.torrent.infohash),
             "peer_id": self.peer_id,
             "uploaded": uploaded,
             "downloaded": downloaded,
@@ -144,102 +110,103 @@ class Torrent:
             "compact": compact,
             "port": port,
         }
-
         if event is not None:
-            assert event in ("started", "stopped", "completed")
-            params["event"] = event
+            assert isinstance(event, TrackerRequestEvent)
+            params["event"] = event.value
 
-        url = yarl.URL(self.tracker_url + "?" + urlencode(params), encoded=True)
+        # I'm manually urlencoding the query parameters because httpx doesn't
+        # seem to encode the infohash bytestring correctly...
+        url = f"{self.announce_url}?{urlencode(params)}"
+        logging.info(f"Announcing {self.torrent.name} to {url}")
+        response = await client.get(url, headers=headers)
+        logging.debug(
+            f"For {self.torrent.name} announcement, server returned response:\n\n {response.content}"
+        )
+        return response.content
 
-        logging.info(f"Announcing {self.name} to {url}")
+    async def announce_forever(self, client: httpx.AsyncClient, port: int):
+        num_announces = 1
 
-        async with session.get(url, headers=headers) as response:
-            response_bytes = await response.read()
+        while True:
+            event = TrackerRequestEvent.STARTED if num_announces == 1 else None
 
-            logging.debug(
-                f"For {self.name} announcement, server returned response:\n\n {response_bytes}"
+            try:
+                contents = await self.announce(client, port, event=event)
+            except httpx.HTTPError as exc:
+                logging.warning(
+                    f"Unable to complete request for {self.torrent.name} exception occurred: {exc}"
+                )
+                sleep = DEFAULT_SLEEP_INTERVAL
+            else:
+                # Re-announce again at the given time provided by tracker
+                sleep = parse_interval(contents, self.torrent.name)
+                num_announces += 1
+            logging.info(
+                f"Re-announcing (#{num_announces}) {self.torrent.name} in {sleep} seconds..."
             )
+            await asyncio.sleep(sleep)
 
-        return response_bytes
+    @classmethod
+    def load_torrents(
+        cls, folderpath: str, peer_id: str, useragent: str
+    ) -> list["TorrentSpoofer"]:
+        """Recursively find and parse through all torrent files in a directory
+
+        folderpath: folder containing torrent files
+        peer_id: The BitTorrent protocol peer id used for announces
+        useragent: The user agent string to be used in HTTP requests when announcing
+        """
+        logging.info(f"Searching for torrent files located under '{folderpath}'")
+
+        torrents = []
+        for root, dirs, files in os.walk(folderpath):
+            for file in files:
+                if file.endswith(".torrent"):
+                    filepath = os.path.join(root, file)
+
+                    logging.info(f"Found {filepath}")
+                    torrents.append(filepath)
+
+        logging.info(f"Found {len(torrents)} torrent files")
+        logging.info("Reading and parsing torrent files...")
+        return [cls(filepath, peer_id, useragent) for filepath in torrents]
 
 
-def parse_interval(response_bytes: bytes, torrent: Torrent) -> int:
+def parse_interval(response_bytes: bytes, torrent_name: str) -> int:
     try:
-        data, _ = pyben.bendecode(response_bytes)
-        sleep = data["interval"]
-    except (pyben.DecodeError, KeyError):
+        data = flatbencode.decode(response_bytes)
+    except flatbencode.DecodingError:
         logging.warning(
-            f"Unable to parse server response for {torrent.name}:\n\n{response_bytes}"
+            f"Unable to parse server response for {torrent_name}:\n{response_bytes}"
         )
         sleep = DEFAULT_SLEEP_INTERVAL
-
+    else:
+        sleep = data.get(b"interval", DEFAULT_SLEEP_INTERVAL)
     return sleep
 
 
-async def announce_forever(
-    session: aiohttp.ClientSession,
-    torrent: Torrent,
-    port: int,
-    initial_wait: int = None,
-) -> None:
-    # Don't want to send out a ton of requests simultaneously at first start up
-    # Add a random amount of sleep time on the first announce to space out torrents
-    if initial_wait is not None:
-        assert initial_wait > 0
-        await asyncio.sleep(random.randint(1, 5 * (initial_wait + 1)))
-
-    count = 1
-    while True:
-        event = "started" if count == 1 else None
-        try:
-            response_bytes = await torrent.announce(session, port, event=event)
-        except aiohttp.ClientError as exc:
-            logging.warning(
-                f"Unable to complete request for {torrent.name} exception occurred: {exc}"
-            )
-            response_bytes = None
-            sleep = DEFAULT_SLEEP_INTERVAL
-        else:
-            # Re-announce again at the given time provided by tracker
-            sleep = parse_interval(response_bytes, torrent)
-        count += 1
-
-        logging.info(f"Re-announcing (#{count}) {torrent.name} in {sleep} seconds...")
-
-        await asyncio.sleep(sleep)
-
-
 async def ghostseed(filepath: str, port: int, version: str) -> None:
-    major, minor, patch = parse_version_info(version)
-    peer_id = generate_peer_id("qB", major, minor, patch)
-    useragent = generate_useragent("qB", major, minor, patch)
+    version_info = semver.VersionInfo.parse(version)
+    peer_id = generate_peer_id("qB", version_info)
+    useragent = generate_useragent("qB", version_info)
 
-    torrents = load_torrents(filepath, peer_id, useragent)
+    torrents = TorrentSpoofer.load_torrents(filepath, peer_id, useragent)
     logging.info("Finished reading in torrent files")
-    n = len(torrents)
-
     logging.info(
         f"Tracker announces will use the following settings: (port={port}, peer_id='{peer_id}', user-agent='{useragent}')"
     )
 
-    async with aiohttp.ClientSession() as session:
-        announces = []
-        for torrent in torrents:
-            announces.append(
-                announce_forever(
-                    session,
-                    torrent,
-                    port,
-                    initial_wait=n,
-                )
-            )
-
-        await asyncio.gather(*announces)
+    async with RATE_LIMIT:
+        async with httpx.AsyncClient() as client:
+            announces = []
+            for torrent in torrents:
+                announces.append(torrent.announce_forever(client, port))
+            await asyncio.gather(*announces)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Enter path to directory of torrent files"
+        description="Enter path to a directory of torrent files"
     )
     parser.add_argument("-f", "--folder", type=str, required=True)
     parser.add_argument("-p", "--port", nargs="?", type=int, const=1, default=6881)
