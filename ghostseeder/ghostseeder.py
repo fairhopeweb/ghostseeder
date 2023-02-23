@@ -5,7 +5,6 @@ Private trackers often reward bonus points for seeding large torrents
 with few seeders. But trackers don't have an explicit way to verify you 
 actually have the files
 """
-import argparse
 import asyncio
 import enum
 import logging
@@ -202,15 +201,3 @@ async def ghostseed(filepath: str, port: int, version: str) -> None:
             for torrent in torrents:
                 announces.append(torrent.announce_forever(client, port))
             await asyncio.gather(*announces)
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Enter path to a directory of torrent files"
-    )
-    parser.add_argument("-f", "--folder", type=str, required=True)
-    parser.add_argument("-p", "--port", nargs="?", type=int, const=1, default=6881)
-    parser.add_argument("-v", "--version", type=str, default="4.4.5")
-    args = parser.parse_args()
-
-    asyncio.run(ghostseed(args.folder, args.port, args.version))
