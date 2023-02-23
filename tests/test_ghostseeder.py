@@ -1,7 +1,7 @@
 import hashlib
 import random
 
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, urlencode
 
 import flatbencode
 import httpx
@@ -90,28 +90,24 @@ class TestLoadingTorrents:
                 f.write(flatbencode.encode(metainfo))
         return files
 
-    def test_single_torrent_file_parses_correctly(
-        self, tmp_path, valid_singlefile_metainfo
-    ):
+    def test_torrent_file_parses_correctly(self, tmp_path, valid_metainfo):
         filename = "[abc]test.torrent"
         filepath = tmp_path / filename
         with open(filepath, "wb") as f:
-            f.write(flatbencode.encode(valid_singlefile_metainfo))
+            f.write(flatbencode.encode(valid_metainfo))
 
         spoof = TorrentSpoofer(
             filepath, peer_id="-qB4450-McTfgDArNMzY", useragent="qBittorrent/4.4.5"
         )
 
-        assert spoof.announce_url == valid_singlefile_metainfo[b"announce"].decode()
+        assert spoof.announce_url == valid_metainfo[b"announce"].decode()
         assert (
             spoof.infohash
-            == hashlib.sha1(
-                flatbencode.encode(valid_singlefile_metainfo[b"info"])
-            ).hexdigest()
+            == hashlib.sha1(flatbencode.encode(valid_metainfo[b"info"])).hexdigest()
         )
-        assert spoof.name == valid_singlefile_metainfo[b"info"][b"name"].decode()
+        assert spoof.name == valid_metainfo[b"info"][b"name"].decode()
 
-    def test_load_subdirectories(self, tmp_path, valid_singlefile_metainfo):
+    def test_load_subdirectories(self, tmp_path, valid_metainfo):
         files = [
             "a/apple.torrent",
             "a/b/banana.torrent",
@@ -119,7 +115,7 @@ class TestLoadingTorrents:
             "pineapple.torrent",
         ]
 
-        files = self.generate_directory_tree(tmp_path, files, valid_singlefile_metainfo)
+        files = self.generate_directory_tree(tmp_path, files, valid_metainfo)
         torrents = TorrentSpoofer.load_torrents(
             tmp_path, peer_id="-qB4450-McTfgDArNMzY", useragent="qBittorrent/4.4.5"
         )
@@ -129,16 +125,14 @@ class TestLoadingTorrents:
         for torrent in torrents:
             assert torrent.filepath in files
 
-    def test_load_subdirectories_skips_non_torrents(
-        self, tmp_path, valid_singlefile_metainfo
-    ):
+    def test_load_subdirectories_skips_non_torrents(self, tmp_path, valid_metainfo):
         files = [
             "a/apple.torrent",
             "a/banana.jpg",
             "a/b/c/orange.mp3",
             "pineapple.torrent",
         ]
-        files = self.generate_directory_tree(tmp_path, files, valid_singlefile_metainfo)
+        files = self.generate_directory_tree(tmp_path, files, valid_metainfo)
         torrents = TorrentSpoofer.load_torrents(
             tmp_path, peer_id="-qB4450-McTfgDArNMzY", useragent="qBittorrent/4.4.5"
         )
@@ -203,15 +197,13 @@ async def test_announce_counting(httpx_mock: HTTPXMock, valid_torrent: TorrentSp
             assert i + 1 == valid_torrent.num_announces
 
 
-# @pytest.mark.parametrize(
-#     "infohash,url_encoded_infohash",
-#     [
-#         ("a", "10.3.9"),
-#         (TorrentClient.qBittorrent, "4.16.5"),
-#         (TorrentClient.qBittorrent, "3.3.14"),
-#     ],
-# )
-def test_infohash_url_encoded_correctly(
+@pytest.mark.asyncio
+async def test_infohash_url_encoded_correctly(
     httpx_mock: HTTPXMock, valid_torrent: TorrentSpoofer
 ):
-    infohash = valid_torrent.infohash
+    encoded_infohash = urlencode({"info_hash": bytes.fromhex(valid_torrent.infohash)})
+    httpx_mock.add_response()
+    async with httpx.AsyncClient() as client:
+        response = await valid_torrent.announce(client, port=6881)
+
+    assert encoded_infohash in str(response.url)
