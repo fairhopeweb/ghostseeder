@@ -40,9 +40,9 @@ logging.basicConfig(
 # Only qBittorrent is supported right now since it's a hassle to figure out
 # the correct user agent strings for every client
 class TorrentClient(enum.Enum):
-    qB = "qBittorrent"
-    # DE = "Deluge"
-    # TR = "Transmission"
+    qBittorrent = "qB"
+    # Deluge = "DE"
+    # Transmission = "TR"
 
 
 def generate_peer_id(client: TorrentClient, version: semver.VersionInfo) -> str:
@@ -61,16 +61,14 @@ def generate_peer_id(client: TorrentClient, version: semver.VersionInfo) -> str:
         random.choices(string.ascii_uppercase + string.ascii_lowercase, k=12)
     )
     peer_id = (
-        f"-{client.name}{version.major}{version.minor}{version.patch}0-{random_hash}"
+        f"-{client.value}{version.major}{version.minor}{version.patch}0-{random_hash}"
     )
-    assert len(peer_id) == 20
-
     logging.info(f"Generating torrent client peer id: {peer_id}")
     return peer_id
 
 
 def generate_useragent(client: TorrentClient, version: semver.VersionInfo) -> str:
-    return f"{client.value}/{version.major}.{version.minor}.{version.patch}"
+    return f"{client.name}/{version.major}.{version.minor}.{version.patch}"
 
 
 # See: https://wiki.theory.org/BitTorrentSpecification#Tracker_Request_Parameters
@@ -99,7 +97,6 @@ class TorrentSpoofer:
         compact: bool = True,
         event: Optional[TrackerRequestEvent] = None,
     ) -> httpx.Response:
-
         headers = {"User-Agent": self.useragent}
         params = {
             "info_hash": bytes.fromhex(self.torrent.infohash),
@@ -139,8 +136,7 @@ class TorrentSpoofer:
                 sleep = DEFAULT_SLEEP_INTERVAL
             else:
                 # Re-announce again at the given time provided by tracker
-                contents = response.content
-                sleep = parse_interval(contents, self.torrent.name)
+                sleep = parse_interval(response.content, self.torrent.name)
 
             logging.info(
                 f"Re-announcing (#{self.num_announces}) {self.torrent.name} in {sleep} seconds..."
@@ -188,8 +184,8 @@ def parse_interval(response_bytes: bytes, torrent_name: str) -> int:
 
 async def ghostseed(filepath: str, port: int, version: str) -> None:
     version_info = semver.VersionInfo.parse(version)
-    peer_id = generate_peer_id(TorrentClient.qB, version_info)
-    useragent = generate_useragent(TorrentClient.qB, version_info)
+    peer_id = generate_peer_id(TorrentClient.qBittorrent, version_info)
+    useragent = generate_useragent(TorrentClient.qBittorrent, version_info)
 
     torrents = TorrentSpoofer.load_torrents(filepath, peer_id, useragent)
     logging.info("Finished reading in torrent files")

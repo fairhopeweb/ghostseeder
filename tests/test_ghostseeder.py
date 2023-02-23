@@ -37,10 +37,10 @@ def test_parse_interval_uses_default_interval_on_failure():
 @pytest.mark.parametrize(
     "client,version,user_agent",
     [
-        (TorrentClient.qB, "4.4.5", "qBittorrent/4.4.5"),
-        (TorrentClient.qB, "4.3.9", "qBittorrent/4.3.9"),
-        (TorrentClient.qB, "3.3.16", "qBittorrent/3.3.16"),
-        (TorrentClient.qB, "3.2.1", "qBittorrent/3.2.1"),
+        (TorrentClient.qBittorrent, "4.4.5", "qBittorrent/4.4.5"),
+        (TorrentClient.qBittorrent, "4.3.9", "qBittorrent/4.3.9"),
+        (TorrentClient.qBittorrent, "3.3.16", "qBittorrent/3.3.16"),
+        (TorrentClient.qBittorrent, "3.2.1", "qBittorrent/3.2.1"),
     ],
 )
 def test_user_agent_string_generation(
@@ -53,9 +53,9 @@ def test_user_agent_string_generation(
 @pytest.mark.parametrize(
     "client,version,peer_id",
     [
-        (TorrentClient.qB, "4.4.5", "-qB4450-McTfgDArNMzY"),
-        (TorrentClient.qB, "4.3.9", "-qB4390-McTfgDArNMzY"),
-        (TorrentClient.qB, "3.2.1", "-qB3210-McTfgDArNMzY"),
+        (TorrentClient.qBittorrent, "4.4.5", "-qB4450-McTfgDArNMzY"),
+        (TorrentClient.qBittorrent, "4.3.9", "-qB4390-McTfgDArNMzY"),
+        (TorrentClient.qBittorrent, "3.2.1", "-qB3210-McTfgDArNMzY"),
     ],
 )
 def test_peer_id_generation(client: TorrentClient, version: str, peer_id: str):
@@ -67,9 +67,9 @@ def test_peer_id_generation(client: TorrentClient, version: str, peer_id: str):
 @pytest.mark.parametrize(
     "client,version",
     [
-        (TorrentClient.qB, "10.3.9"),
-        (TorrentClient.qB, "4.16.5"),
-        (TorrentClient.qB, "3.3.14"),
+        (TorrentClient.qBittorrent, "10.3.9"),
+        (TorrentClient.qBittorrent, "4.16.5"),
+        (TorrentClient.qBittorrent, "3.3.14"),
     ],
 )
 def test_peer_id_generation_fails_on_large_version_numbers(
@@ -205,5 +205,13 @@ async def test_announce_counting(httpx_mock: HTTPXMock, valid_torrent: TorrentSp
             assert i + 1 == valid_torrent.num_announces
 
 
+@pytest.mark.parametrize(
+    "infohash,url_encoded_infohash",
+    [
+        ("a", "10.3.9"),
+        (TorrentClient.qBittorrent, "4.16.5"),
+        (TorrentClient.qBittorrent, "3.3.14"),
+    ],
+)
 def test_infohash_url_encoded_correctly(infohash, url_encoded_infohash):
     pass
