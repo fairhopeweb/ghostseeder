@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ghostseeder"
+description = "This Python script spoofs seeding of torrent files to private trackers by sending fake announces."
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+dependencies = [
+    "aiolimiter==1.0.0",
+    "flatbencode>=0.2.1",
+    "httpx>=0.23.3",
+    "semver>=2.13.0",
+    "torf>=4.1.4",
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/jephdo/ghostseeder"
+
+[project.optional-dependencies]
+test = ["pytest >=7.1.3,<8.0.0"]
+
+[tool.setuptools]
+py-modules = []

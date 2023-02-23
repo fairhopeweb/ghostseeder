@@ -6,16 +6,20 @@ by sending fake announces.
 Private trackers usually reward bonus points for seeding a lot of torrents. But 
 at the same time, trackers don't have an explicit way to verify you actually have the files
 
-## Requirements
+## Setup 
 
-Tested with Python v3.8+
-* [aiohttp](https://github.com/aio-libs/aiohttp) - A library for sending http requests
-* [pyben](https://github.com/alexpdev/pyben) -  Bencoding library for reading torrent files
+Tested with Python v3.9+
+```
+$ git clone https://github.com/jephdo/ghostseeder.git
+$ python -m pip intall .
+$ python cli.py
+usage: cli.py [-h] -f FOLDER [-p [PORT]] [-v VERSION]
+```
   
 Script will announce itself as a [qBittorrent](https://github.com/qbittorrent/qBittorrent) client
 
 ## Example Usage
-Add torrents to a folder:
+Add torrent files to a folder:
 ```
 $ tree torrents/
 torrents/
@@ -27,15 +31,16 @@ torrents/
 └── ubuntu-22.10-desktop-amd64.iso.torrent
 
 1 directory, 5 files
+$ python cli.py -f torrents/
 ```
 
-The script will search for all `.torrent` files in the folder passed to it. Run this on your server/seedbox:
+The script will search for all `.torrent` files in the folder passed to it. For example, run this on your server/seedbox:
 
 ```
-$ nohup python ghostseeder/ghostseeder.py -f torrents/ &>> output.log &
+$ nohup python cli.py -f torrents/ &>> output.log &
 ```
 
-This will keep the script running in the background and store logs in `output.log`
+This will run the script in the background and store logs in `output.log`
 
 * `-f`, `--folder` your directory containing `.torrent` files. Torrent files should be from a private tracker and the announce url should contain your unique passkey
 * `-p`, `--port` the port number announced to the tracker to receive incoming connections. Used if you want to change the port number announced to the tracker. Optional, defaults to `6881`
@@ -44,7 +49,7 @@ This will keep the script running in the background and store logs in `output.lo
 
 **Example output**
 ```
-$ python ghostseeder.py -f torrents/ -p 59097
+$ python cli.py -f torrents/ -p 59097
 2022-10-27 12:34:23 INFO     Generating torrent client peer id: -qB4450-NgMhgWdDpKul
 2022-10-27 12:34:23 INFO     Searching for torrent files located under 'torrents/'
 2022-10-27 12:34:23 INFO     Found torrents/ubuntu-22.10-desktop-amd64.iso.torrent
