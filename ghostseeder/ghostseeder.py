@@ -127,23 +127,31 @@ class TorrentSpoofer:
         return response
 
     async def announce_forever(self, client: httpx.AsyncClient, port: int):
-        while True:
-            event = TrackerRequestEvent.STARTED if self.num_announces == 0 else None
-            try:
-                response = await self.announce(client, port, event=event)
-            except httpx.HTTPError as exc:
-                logging.warning(
-                    f"Unable to complete request for {self.name} exception occurred: {exc}"
-                )
-                sleep = DEFAULT_SLEEP_INTERVAL
-            else:
-                # Re-announce again at the given time provided by tracker
-                sleep = parse_interval(response.content, self.name)
+        try:
+            while True:
+                event = TrackerRequestEvent.STARTED if self.num_announces == 0 else None
+                try:
+                    response = await self.announce(client, port, event=event)
+                except httpx.HTTPError as exc:
+                    logging.warning(
+                        f"Unable to complete request for {self.name} exception occurred: {exc}"
+                    )
+                    sleep = DEFAULT_SLEEP_INTERVAL
+                else:
+                    # Re-announce again at the given time provided by tracker
+                    sleep = parse_interval(response.content, self.name)
 
+                logging.info(
+                    f"Re-announcing (#{self.num_announces}) {self.name} in {sleep} seconds..."
+                )
+                await asyncio.sleep(sleep)
+        finally:
             logging.info(
-                f"Re-announcing (#{self.num_announces}) {self.name} in {sleep} seconds..."
+                f"Received shutdown signal...sending final announce: {self.name}"
             )
-            await asyncio.sleep(sleep)
+            last_response = await self.announce(
+                client, port, event=TrackerRequestEvent.STOPPED
+            )
 
     @classmethod
     def load_torrents(

@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import random
 
@@ -207,3 +208,21 @@ async def test_infohash_url_encoded_correctly(
         response = await valid_torrent.announce(client, port=6881)
 
     assert encoded_infohash in str(response.url)
+
+
+@pytest.mark.asyncio
+async def test_spoofer_sends_final_stop_announce(
+    httpx_mock: HTTPXMock, valid_torrent: TorrentSpoofer, caplog
+):
+    async def run():
+        httpx_mock.add_response()
+        async with httpx.AsyncClient() as client:
+            await valid_torrent.announce_forever(client, port=6881)
+
+    task = asyncio.create_task(run())
+    await asyncio.sleep(0.01)
+    task.cancel()
+    # Have to actually wait a bit for the logging output in the `finally:` clause
+    # to even reach logging output:
+    await asyncio.sleep(0.01)
+    assert "&event=stopped" in caplog.text
