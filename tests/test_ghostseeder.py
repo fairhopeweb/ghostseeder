@@ -9,6 +9,7 @@ import httpx
 import pytest
 import semver
 
+from asynciolimiter import StrictLimiter
 from pytest_httpx import HTTPXMock
 
 from ghostseeder.ghostseeder import (
@@ -200,14 +201,39 @@ async def test_announce_counting(httpx_mock: HTTPXMock, valid_torrent: TorrentSp
 
 @pytest.mark.asyncio
 async def test_infohash_url_encoded_correctly(
-    httpx_mock: HTTPXMock, valid_torrent: TorrentSpoofer
+    httpx_mock: HTTPXMock, valid_torrents: TorrentSpoofer
 ):
-    encoded_infohash = urlencode({"info_hash": bytes.fromhex(valid_torrent.infohash)})
+    encoded_infohash = urlencode({"info_hash": bytes.fromhex(valid_torrents.infohash)})
     httpx_mock.add_response()
     async with httpx.AsyncClient() as client:
-        response = await valid_torrent.announce(client, port=6881)
+        response = await valid_torrents.announce(client, port=6881)
 
     assert encoded_infohash in str(response.url)
+
+
+@pytest.mark.asyncio
+async def test_non_http_exception_still_raises(
+    httpx_mock: HTTPXMock, valid_torrent: TorrentSpoofer
+):
+    for exc in (ValueError, KeyError, AttributeError):
+        httpx_mock.add_exception(exc())
+        limit = StrictLimiter(100)
+        with pytest.raises(exc):
+            async with httpx.AsyncClient() as client:
+                await valid_torrent.announce_forever(client, limit, port=6881)
+
+
+@pytest.mark.asyncio
+@pytest.mark.skip
+async def test_http_exception_does_not_raise(
+    httpx_mock: HTTPXMock, valid_torrent: TorrentSpoofer
+):
+
+    httpx_mock.add_exception(httpx.ReadTimeout("a"))
+    limit = StrictLimiter(100)
+    async with httpx.AsyncClient() as client:
+        task = valid_torrent.announce_forever(client, limit, port=6881)
+        asyncio.gather(task, return_exceptions=False)
 
 
 @pytest.mark.asyncio
@@ -217,14 +243,12 @@ async def test_spoofer_sends_final_stop_announce(
     async def run():
         httpx_mock.add_response()
         async with httpx.AsyncClient() as client:
-            await valid_torrent.announce_forever(
-                client, asyncio.Semaphore(3), port=6881
-            )
+            await valid_torrent.announce_forever(client, StrictLimiter(100), port=6881)
 
     task = asyncio.create_task(run())
-    await asyncio.sleep(0.01)
+    await asyncio.sleep(0.1)
     task.cancel()
     # Have to actually wait a bit for the logging output in the `finally:` clause
     # to even reach logging output:
-    await asyncio.sleep(0.01)
+    await asyncio.sleep(0.1)
     assert "&event=stopped" in caplog.text

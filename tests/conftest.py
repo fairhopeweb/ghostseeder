@@ -58,8 +58,20 @@ def valid_metainfo(request):
     return request.getfixturevalue(request.param)
 
 
+@pytest.fixture
+def valid_torrent(tmp_path, valid_singlefile_metainfo):
+    filename = "test.torrent"
+    filepath = tmp_path / filename
+    with open(filepath, "wb") as f:
+        f.write(flatbencode.encode(valid_singlefile_metainfo))
+
+    return TorrentSpoofer(
+        filepath, peer_id="-qB4450-McTfgDArNMzY", useragent="qBittorrent/4.4.5"
+    )
+
+
 @pytest.fixture(params=["valid_singlefile_metainfo", "valid_multifile_metainfo"])
-def valid_torrent(tmp_path, request):
+def valid_torrents(tmp_path, request):
     filename = "test.torrent"
     filepath = tmp_path / filename
     metainfo = request.getfixturevalue(request.param)
