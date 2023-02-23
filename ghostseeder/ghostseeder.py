@@ -35,9 +35,17 @@ logging.basicConfig(
     level=logging.DEBUG if DEBUG else logging.INFO,
     datefmt="%Y-%m-%d %H:%M:%S",
 )
+# Also see: https://wiki.theory.org/BitTorrentSpecification#peer_id for
+# a list of 2-character codes.
+# Only qBittorrent is supported right now since it's a hassle to figure out
+# the correct user agent strings for every client
+class TorrentClient(enum.Enum):
+    qB = "qBittorrent"
+    # DE = "Deluge"
+    # TR = "Transmission"
 
 
-def generate_peer_id(client: str, version: semver.VersionInfo) -> str:
+def generate_peer_id(client: TorrentClient, version: semver.VersionInfo) -> str:
     """Generates a unique string that identifies your torrent client to the
     tracker. Uses the "Azureus-style" convention. For more information
     see https://wiki.theory.org/BitTorrentSpecification#peer_id
@@ -46,31 +54,23 @@ def generate_peer_id(client: str, version: semver.VersionInfo) -> str:
     # and go up to version x.y.15 using 10->A, 11->B, ...16->F
     # See: https://github.com/qbittorrent/qBittorrent/wiki/Frequently-Asked-Questions#What_is_qBittorrent_Peer_ID
     # But this is complicated to deal with so artificially prevent any 2-digit numbers:
-    assert (
-        len(client) == 2
-        and version.major < 10
-        and version.minor < 10
-        and version.patch < 10
-    )
+    if version.major > 9 or version.minor > 9 or version.patch > 9:
+        raise ValueError("Version numbers must be single digits only: {}")
 
     random_hash = "".join(
         random.choices(string.ascii_uppercase + string.ascii_lowercase, k=12)
     )
-    peer_id = f"-{client}{version.major}{version.minor}{version.patch}0-{random_hash}"
+    peer_id = (
+        f"-{client.name}{version.major}{version.minor}{version.patch}0-{random_hash}"
+    )
     assert len(peer_id) == 20
 
     logging.info(f"Generating torrent client peer id: {peer_id}")
     return peer_id
 
 
-def generate_useragent(client: str, version: semver.VersionInfo) -> str:
-    # Also see: https://wiki.theory.org/BitTorrentSpecification#peer_id
-    # Only qBittorrent is supported rightnow
-    client_map = {
-        "qB": "qBittorrent",
-    }
-    client = client_map[client]
-    return f"{client}/{version.major}.{version.minor}.{version.patch}"
+def generate_useragent(client: TorrentClient, version: semver.VersionInfo) -> str:
+    return f"{client.value}/{version.major}.{version.minor}.{version.patch}"
 
 
 # See: https://wiki.theory.org/BitTorrentSpecification#Tracker_Request_Parameters
@@ -95,9 +95,9 @@ class TorrentSpoofer:
         uploaded: int = 0,
         downloaded: int = 0,
         left: int = 0,
-        compact: int = 1,
+        compact: bool = True,
         event: Optional[TrackerRequestEvent] = None,
-    ) -> bytes:
+    ) -> httpx.Response:
 
         headers = {"User-Agent": self.useragent}
         params = {
@@ -106,7 +106,9 @@ class TorrentSpoofer:
             "uploaded": uploaded,
             "downloaded": downloaded,
             "left": left,
-            "compact": compact,
+            # This is a boolean that is sent as '0' or '1'.
+            # See: https://wiki.theory.org/BitTorrentSpecification#Tracker_Request_Parameters
+            "compact": int(compact),
             "port": port,
         }
         if event is not None:
@@ -121,16 +123,15 @@ class TorrentSpoofer:
         logging.debug(
             f"For {self.torrent.name} announcement, server returned response:\n\n {response.content}"
         )
-        return response.content
+        return response
 
     async def announce_forever(self, client: httpx.AsyncClient, port: int):
         num_announces = 1
 
         while True:
             event = TrackerRequestEvent.STARTED if num_announces == 1 else None
-
             try:
-                contents = await self.announce(client, port, event=event)
+                response = await self.announce(client, port, event=event)
             except httpx.HTTPError as exc:
                 logging.warning(
                     f"Unable to complete request for {self.torrent.name} exception occurred: {exc}"
@@ -138,6 +139,7 @@ class TorrentSpoofer:
                 sleep = DEFAULT_SLEEP_INTERVAL
             else:
                 # Re-announce again at the given time provided by tracker
+                contents = response.content
                 sleep = parse_interval(contents, self.torrent.name)
                 num_announces += 1
             logging.info(
@@ -186,8 +188,8 @@ def parse_interval(response_bytes: bytes, torrent_name: str) -> int:
 
 async def ghostseed(filepath: str, port: int, version: str) -> None:
     version_info = semver.VersionInfo.parse(version)
-    peer_id = generate_peer_id("qB", version_info)
-    useragent = generate_useragent("qB", version_info)
+    peer_id = generate_peer_id(TorrentClient.qB, version_info)
+    useragent = generate_useragent(TorrentClient.qB, version_info)
 
     torrents = TorrentSpoofer.load_torrents(filepath, peer_id, useragent)
     logging.info("Finished reading in torrent files")
