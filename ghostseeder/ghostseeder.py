@@ -15,16 +15,16 @@ import string
 from typing import Optional
 from urllib.parse import urlencode
 
-import aiolimiter
 import flatbencode
 import httpx
 import semver
 import torf
 
 DEBUG = False
-# Allow for 10 concurrent announces within a 5 second window. Useful
-# especially during a cold start with a lot of torrents:
-RATE_LIMIT = aiolimiter.AsyncLimiter(10, 5)
+# Allow for 5 concurrent requests at a time and if blocked, wait by sleeping
+# 15 seconds:
+CONCURRENCY_LIMIT = 5
+WAIT_TIME_SECONDS = 15
 # Default time in between announces unless tracker provides an
 # interval (3600 seconds = 1 hour):
 DEFAULT_SLEEP_INTERVAL = 3600
@@ -126,10 +126,18 @@ class TorrentSpoofer:
         self.num_announces += 1
         return response
 
-    async def announce_forever(self, client: httpx.AsyncClient, port: int):
+    async def announce_forever(
+        self, client: httpx.AsyncClient, limit: asyncio.Semaphore, port: int
+    ):
         try:
             while True:
                 event = TrackerRequestEvent.STARTED if self.num_announces == 0 else None
+
+                if limit.locked():
+                    logging.debug(
+                        "Concurrency limit reached...waiting {WAIT_TIME_SECONDS}s for {self.name}"
+                    )
+                    # await asyncio.sleep(WAIT_TIME_SECONDS)
                 try:
                     response = await self.announce(client, port, event=event)
                 except httpx.HTTPError as exc:
@@ -171,7 +179,7 @@ class TorrentSpoofer:
                 if file.endswith(".torrent"):
                     filepath = os.path.join(root, file)
 
-                    logging.info(f"Found {filepath}")
+                    logging.debug(f"Found {filepath}")
                     torrents.append(filepath)
 
         logging.info(f"Found {len(torrents)} torrent files")
@@ -202,10 +210,13 @@ async def ghostseed(filepath: str, port: int, version: str) -> None:
     logging.info(
         f"Tracker announces will use the following settings: (port={port}, peer_id='{peer_id}', user-agent='{useragent}')"
     )
+    concurrency_limit = asyncio.Semaphore(CONCURRENCY_LIMIT)
 
-    async with RATE_LIMIT:
+    async with concurrency_limit:
         async with httpx.AsyncClient() as client:
             announces = []
             for torrent in torrents:
-                announces.append(torrent.announce_forever(client, port))
+                announces.append(
+                    torrent.announce_forever(client, concurrency_limit, port)
+                )
             await asyncio.gather(*announces)

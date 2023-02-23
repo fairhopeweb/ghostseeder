@@ -1,4 +1,3 @@
-aiolimiter==1.0.0
 flatbencode==0.2.1
 httpx==0.23.3
 semver==2.13.0

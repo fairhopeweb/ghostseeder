@@ -217,7 +217,9 @@ async def test_spoofer_sends_final_stop_announce(
     async def run():
         httpx_mock.add_response()
         async with httpx.AsyncClient() as client:
-            await valid_torrent.announce_forever(client, port=6881)
+            await valid_torrent.announce_forever(
+                client, asyncio.Semaphore(3), port=6881
+            )
 
     task = asyncio.create_task(run())
     await asyncio.sleep(0.01)
