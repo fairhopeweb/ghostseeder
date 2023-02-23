@@ -24,7 +24,7 @@ from asynciolimiter import StrictLimiter
 
 DEBUG = False
 
-CONCURRENCY_LIMIT = 1
+REQUESTS_PER_SECOND = 1
 # Default time in between announces unless tracker provides an
 # interval (3600 seconds = 1 hour):
 DEFAULT_SLEEP_INTERVAL = 3600
@@ -208,7 +208,7 @@ async def ghostseed(filepath: str, port: int, version: str) -> None:
     logging.info(
         f"Tracker announces will use the following settings: (port={port}, peer_id='{peer_id}', user-agent='{useragent}')"
     )
-    limit = StrictLimiter(CONCURRENCY_LIMIT)
+    limit = StrictLimiter(REQUESTS_PER_SECOND)
 
     async with httpx.AsyncClient() as client:
         announces = []
