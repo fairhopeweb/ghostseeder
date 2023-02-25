@@ -7,6 +7,7 @@ actually have the files
 """
 import asyncio
 import enum
+import hashlib
 import logging
 import os
 import random
@@ -18,7 +19,6 @@ from urllib.parse import urlencode
 import flatbencode
 import httpx
 import semver
-import torf
 
 from asynciolimiter import StrictLimiter
 
@@ -80,12 +80,17 @@ class TrackerRequestEvent(enum.Enum):
 class TorrentSpoofer:
     def __init__(self, filepath: str, peer_id: str, useragent: str):
         self.filepath = filepath
-        torrent = torf.Torrent.read(filepath)
+        with open(filepath, "rb") as f:
+            contents = f.read()
+        torrent_info = flatbencode.decode(contents)
         self.peer_id = peer_id
         self.useragent = useragent
-        self.announce_url = torrent.metainfo["announce"]
-        self.name = torrent.name
-        self.infohash = torrent.infohash
+        self.announce_url = torrent_info[b"announce"].decode()
+        self.name = torrent_info[b"info"][b"name"].decode()
+        self.infohash = hashlib.sha1(
+            flatbencode.encode(torrent_info[b"info"])
+        ).hexdigest()
+        self.encoded_infohash = bytes.fromhex(self.infohash)
         self.num_announces = 0
 
     async def announce(
@@ -100,7 +105,7 @@ class TorrentSpoofer:
     ) -> httpx.Response:
         headers = {"User-Agent": self.useragent}
         params = {
-            "info_hash": bytes.fromhex(self.infohash),
+            "info_hash": self.encoded_infohash,
             "peer_id": self.peer_id,
             "uploaded": uploaded,
             "downloaded": downloaded,
