@@ -1,5 +1,5 @@
 # Ghostseeder 
-![GitHub CI](https://github.com/jephdo/test123/actions/workflows/test.yml/badge.svg)
+![GitHub CI](https://github.com/jephdo/ghostseeder/actions/workflows/test.yml/badge.svg)
 
 This Python script spoofs seeding of torrent files to private trackers
 by sending fake announces. 
