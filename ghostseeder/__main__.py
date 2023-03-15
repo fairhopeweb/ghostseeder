@@ -28,7 +28,7 @@ def cli():
         "-v",
         "--version",
         type=str,
-        default="4.4.5",
+        default="4.3.9",
         help="Specific torrent client version number to spoof",
     )
     parser.add_argument(
