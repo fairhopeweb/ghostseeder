@@ -66,6 +66,17 @@ def test_peer_id_generation(client: TorrentClient, version: str, peer_id: str):
     assert generate_peer_id(client, version_info) == peer_id
 
 
+def test_peer_id_with_and_without_random_seed():
+    client = TorrentClient.qBittorrent
+    version = semver.VersionInfo.parse("4.4.5")
+    assert generate_peer_id(client, version) != generate_peer_id(client, version)
+
+    seed = 23
+    assert generate_peer_id(client, version, seed) == generate_peer_id(
+        client, version, seed
+    )
+
+
 @pytest.mark.parametrize(
     "client,version",
     [

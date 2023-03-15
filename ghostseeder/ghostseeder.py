@@ -44,7 +44,9 @@ class TorrentClient(enum.Enum):
     # Transmission = "TR"
 
 
-def generate_peer_id(client: TorrentClient, version: semver.VersionInfo) -> str:
+def generate_peer_id(
+    client: TorrentClient, version: semver.VersionInfo, seed: Optional[int] = None
+) -> str:
     """Generates a unique string that identifies your torrent client to the
     tracker. Uses the "Azureus-style" convention. For more information
     see https://wiki.theory.org/BitTorrentSpecification#peer_id
@@ -55,7 +57,8 @@ def generate_peer_id(client: TorrentClient, version: semver.VersionInfo) -> str:
     # But this is complicated to deal with so artificially prevent any 2-digit numbers:
     if version.major > 9 or version.minor > 9 or version.patch > 9:
         raise ValueError("Version numbers must be single digits only: {}")
-
+    if seed is not None:
+        random.seed(seed)
     random_hash = "".join(
         random.choices(string.ascii_uppercase + string.ascii_lowercase, k=12)
     )
@@ -202,9 +205,15 @@ def parse_interval(response_bytes: bytes, torrent_name: str) -> int:
     return sleep
 
 
-async def ghostseed(filepath: str, port: int, version: str) -> None:
+async def ghostseed(
+    filepath: str,
+    port: int,
+    version: str,
+    max_requests: Optional[int] = None,
+    seed: Optional[int] = None,
+) -> None:
     version_info = semver.VersionInfo.parse(version)
-    peer_id = generate_peer_id(TorrentClient.qBittorrent, version_info)
+    peer_id = generate_peer_id(TorrentClient.qBittorrent, version_info, seed)
     useragent = generate_useragent(TorrentClient.qBittorrent, version_info)
 
     torrents = TorrentSpoofer.load_torrents(filepath, peer_id, useragent)
@@ -212,7 +221,10 @@ async def ghostseed(filepath: str, port: int, version: str) -> None:
     logging.info(
         f"Tracker announces will use the following settings: (port={port}, peer_id='{peer_id}', user-agent='{useragent}')"
     )
-    limit = StrictLimiter(MAX_REQUESTS_PER_SECOND)
+
+    if max_requests is None:
+        max_requests = MAX_REQUESTS_PER_SECOND
+    limit = StrictLimiter(max_requests)
 
     async with httpx.AsyncClient() as client:
         announces = []
