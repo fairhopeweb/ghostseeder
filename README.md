@@ -21,8 +21,15 @@ Enter path to a directory of torrent files
 optional arguments:
   -h, --help            show this help message and exit
   -f FOLDER, --folder FOLDER
+                        A directory containing `.torrent` files. Torrent files should be from a private tracker and the announce url should contain your unique passkey
   -p [PORT], --port [PORT]
+                        The port number announced to the tracker to receive incoming connections. Used if you want to change the port number announced to the tracker. Optional, defaults to `6881`
   -v VERSION, --version VERSION
+                        The version of qBittorrent that you want to announce to the tracker. This info is used to generate the peer id and user agent string. Setting `-v '3.3.16'` will use qBittorrent
+                        v3.3.16. Optional, defaults to `'4.3.9'`
+  -r MAX_REQUESTS, --max-requests MAX_REQUESTS
+                        Maximum number of allowed HTTP announces per second. Useful especially at startup to mitigate sending a large burst of announces at once.
+  -s SEED, --seed SEED  Optional random seed used to make peer-id generation deterministic
 ```
   
 Script will announce itself as a [qBittorrent](https://github.com/qbittorrent/qBittorrent) client
@@ -50,11 +57,6 @@ $ nohup python -m ghostseeder -f torrents/ &>> output.log &
 ```
 
 This will run the script in the background and store logs in `output.log`
-
-* `-f`, `--folder` your directory containing `.torrent` files. Torrent files should be from a private tracker and the announce url should contain your unique passkey
-* `-p`, `--port` the port number announced to the tracker to receive incoming connections. Used if you want to change the port number announced to the tracker. Optional, defaults to `6881`
-* `-v`, `--version` the version of qBittorrent that you want to announce to the tracker. This info is used to generate the peer id and user agent string. Setting `-v '4.3.9'` will use qBittorrent v4.3.9. Optional, defaults to  `'4.4.5'`
-
 
 **Example output**
 ```
