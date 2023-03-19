@@ -12,14 +12,12 @@ import logging
 import os
 import random
 import string
-
 from typing import Optional
 from urllib.parse import urlencode
 
 import flatbencode
 import httpx
 import semver
-
 from asynciolimiter import StrictLimiter
 
 DEBUG = False
@@ -162,9 +160,7 @@ class TorrentSpoofer:
             logging.info(
                 f"Received shutdown signal...sending final announce: {self.name}"
             )
-            last_response = await self.announce(
-                client, port, event=TrackerRequestEvent.STOPPED
-            )
+            await self.announce(client, port, event=TrackerRequestEvent.STOPPED)
 
     @classmethod
     def load_torrents(
