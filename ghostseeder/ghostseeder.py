@@ -11,6 +11,7 @@ import hashlib
 import logging
 import os
 import random
+import ssl
 import string
 from typing import Optional
 from urllib.parse import urlencode
@@ -144,7 +145,7 @@ class TorrentSpoofer:
                 await limit.wait()
                 try:
                     response = await self.announce(client, port, event=event)
-                except httpx.HTTPError as exc:
+                except (httpx.HTTPError, ssl.SSLError) as exc:
                     logging.warning(
                         f"Unable to complete request for {self.name} exception occurred: {exc}"
                     )
