@@ -72,6 +72,15 @@ $ python -m ghostseeder -f torrents/ -p 59097
 ...
 ```
 
+## Example Docker Usage
+A `Dockerfile` is provided and you can run the script as a Docker container by attaching
+a volume containing torrent files. You can specify optional environment variables to change
+the port and qBittorrent version:
+
+```
+$ docker build --tag ghostseeder-docker .
+$ docker run --name ghostseeder --volume ./torrents:/torrents --detach --env PORT=59097 --env VERSION=4.4.5 ghostseeder-docker
+```
 ## Details of this script
 
 Every private torrent has an announce url to the tracker containing a unique passkey (e.g. `https://flacsfor.me/123456789abcdefg37ss9t0awe3dlyqs/announce`). When a torrent client begins seeding a torrent, it uses this url to send parameters describing the current state of the torrent (including how much has been downloaded and uploaded). All information about the torrent is self-reported by the client.
